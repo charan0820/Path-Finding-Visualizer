@@ -6,6 +6,8 @@
 
 [Architecture](#architecture) · [How it works](#how-it-works) · [Run locally](#run-locally)
 
+## Demo
+
 ---
 
 ![Demo](assets/demo.gif)

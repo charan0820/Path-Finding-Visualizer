@@ -212,8 +212,8 @@ def _render_result(graph, map_placeholder) -> None:
             origin_node=origin,
             destination_node=dest,
             placeholder=map_placeholder,
-            frame_delay_s=0.04,
-            step_size=max(1, len(result.explored) // 60),
+            frame_delay_s=0.08,
+            # step_size now auto-calculated inside animate_search
         )
         state.set_animation_done()
     else:
