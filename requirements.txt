@@ -5,3 +5,5 @@ streamlit>=1.31.0
 matplotlib>=3.8.0
 pytest>=8.0.0
 geopy>=2.4.0
+requests>=2.31.0
+rtree>=1.0.0

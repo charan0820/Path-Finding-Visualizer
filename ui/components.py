@@ -202,7 +202,6 @@ def _snap_and_set_nodes(
     origin_lat: float, origin_lng: float,
     dest_lat: float,   dest_lng: float,
 ) -> None:
-    """Snap lat/lng pairs to nearest graph nodes and update state."""
     try:
         nx_graph = graph.underlying_graph()
 
@@ -229,8 +228,16 @@ def _snap_and_set_nodes(
             f"({dest_data.lat:.5f}, {dest_data.lng:.5f})"
         )
 
+    except RuntimeError as e:
+        # Shows the exact error on the deployed app
+        st.sidebar.error(f"❌ Snap failed: {e}")
+        return
     except Exception as e:
-        st.sidebar.error(f"Could not snap coordinates: {e}")
+        st.sidebar.error(
+            f"❌ Unexpected error snapping coordinates: {e}  \n\n"
+            "Check the Streamlit Cloud logs for details."
+        )
+        return
 
     st.rerun()
 

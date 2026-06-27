@@ -321,7 +321,16 @@ def _get_bbox_from_geocoder(
 
 
 def get_nearest_node(graph: nx.MultiDiGraph, lat: float, lng: float) -> int:
-    return ox.nearest_nodes(graph, X=lng, Y=lat)
+    try:
+        node = ox.nearest_nodes(graph, X=lng, Y=lat)
+        log.info(f"Nearest node to ({lat}, {lng}): {node}")
+        return node
+    except Exception as e:
+        log.error(f"nearest_nodes failed: {e}")
+        raise RuntimeError(
+            f"Could not snap ({lat}, {lng}) to the road network. "
+            f"Detail: {e}"
+        ) from e
 
 
 def _cache_path(place_name: str, cache_dir: str) -> Path:
