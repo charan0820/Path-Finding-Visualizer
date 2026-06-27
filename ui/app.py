@@ -52,10 +52,10 @@ def run_app() -> None:
 
 
 def _render_header() -> None:
-    st.title("🗺️ A* Pathfinding on Real Road Networks")
+    st.title("🗺️ Pathfinding on Real Road Networks")
     st.caption(
         "Select a city, pick origin and destination coordinates, "
-        "and watch A* explore the road network in real time."
+        "and watch the algorithm explore the road network in real time."
     )
     st.divider()
 
