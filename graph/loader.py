@@ -32,26 +32,29 @@ ox.settings.overpass_url = "https://overpass.kumi.systems/api/interpreter"
 # These cover only the urban core, not the entire administrative region
 # which is what Nominatim returns and causes the "474x too large" error
 CITY_BBOXES: dict[str, tuple[float, float, float, float]] = {
-    # Tight city-centre only — NOT full administrative boundaries
-    # Each tile in a 3x3 grid must be small enough for one Overpass request
-    "amsterdam, netherlands":       (52.395, 52.340, 4.940, 4.840),  # centre only
+    "amsterdam, netherlands":       (52.395, 52.340, 4.940,    4.840),
     "manhattan, new york, usa":     (40.800, 40.720, -73.940, -74.010),
     "shibuya, tokyo, japan":        (35.668, 35.648, 139.715, 139.685),
-    "london, uk":                   (51.530, 51.470, -0.070, -0.170),
-    "paris, france":                (48.880, 48.830,  2.380,  2.290),
-    "berlin, germany":              (52.545, 52.480, 13.450, 13.340),
-    "barcelona, spain":             (41.415, 41.365,  2.205,  2.130),
+    "london, uk":                   (51.530, 51.470, -0.070,  -0.170),
+    "paris, france":                (48.880, 48.830,  2.380,   2.290),
+    "berlin, germany":              (52.545, 52.480, 13.450,  13.340),
+    "barcelona, spain":             (41.415, 41.365,  2.205,   2.130),
+    # Small cities — use tight bbox to avoid Overpass hanging
+    "piedmont, california, usa":    (37.835, 37.810, -122.210, -122.250),
+    "cambridge, uk":                (52.230, 52.185,   0.155,    0.085),
 }
 
-# Grid size per city — more tiles for larger areas
 CITY_GRID_SIZE: dict[str, int] = {
-    "amsterdam, netherlands":   4,   # 16 tiles
+    "amsterdam, netherlands":   4,
     "manhattan, new york, usa": 4,
     "shibuya, tokyo, japan":    3,
     "london, uk":               4,
-    "paris, france":            4,
-    "berlin, germany":          4,
+    "paris, france":            3,
+    "berlin, germany":          3,
     "barcelona, spain":         3,
+    # Small cities only need 2x2 = 4 tiles
+    "piedmont, california, usa": 2,
+    "cambridge, uk":             2,
 }
 
 def load_graph(
@@ -65,53 +68,60 @@ def load_graph(
         log.info(f"Loading cached graph: {cache_path}")
         graph = ox.load_graphml(cache_path)
 
-        # Validate cache is strongly connected — fixes graphs cached before
-        # the SCC extraction fix was applied
         if not nx.is_strongly_connected(graph):
             log.warning(
-                f"Cached graph is not strongly connected "
+                f"Cached graph not strongly connected "
                 f"({nx.number_strongly_connected_components(graph)} components). "
-                f"Deleting cache and redownloading..."
+                f"Deleting and redownloading..."
             )
-            cache_path.unlink()  # delete the bad cache
-            return load_graph(place_name, cache_dir, network_type)  # reload
+            cache_path.unlink()
+            return load_graph(place_name, cache_dir, network_type)
 
         _log_graph_stats(graph, place_name)
         return graph
 
     log.info(f"Downloading road network for '{place_name}' from OSM...")
 
-    place_key = place_name.lower().strip()
+    place_key  = place_name.lower().strip()
+    matched_key = next((k for k in CITY_BBOXES if k == place_key), None)
 
-    if place_key in CITY_BBOXES:
-        bbox      = CITY_BBOXES[place_key]
-        grid_size = CITY_GRID_SIZE.get(place_key, 3)
+    if matched_key:
+        bbox      = CITY_BBOXES[matched_key]
+        grid_size = CITY_GRID_SIZE.get(matched_key, 2)
+        log.info(
+            f"Using hardcoded bbox for '{place_name}' "
+            f"with {grid_size}x{grid_size} grid"
+        )
         graph = _load_tiled(bbox, grid_size, network_type)
     else:
-        graph = _load_single(place_name, network_type)
+        log.info(f"No hardcoded bbox for '{place_name}' — using tiled geocoded bbox")
+        bbox = _get_bbox_from_geocoder(place_name)
+        if bbox is None:
+            raise ConnectionError(
+                f"Could not find '{place_name}' in OpenStreetMap. "
+                "Check spelling or try a more specific name."
+            )
+        graph = _load_tiled(bbox, grid_size=2, network_type=network_type)
 
-    # Final guarantee — extract largest SCC before caching
-    # This runs regardless of load method
+    # Final SCC extraction before caching
     if not nx.is_strongly_connected(graph):
         log.warning(
             f"Graph has {nx.number_strongly_connected_components(graph)} "
-            f"components after loading — extracting largest SCC..."
+            f"components — extracting largest SCC..."
         )
-        largest_scc = max(
-            nx.strongly_connected_components(graph), key=len
-        )
+        largest_scc = max(nx.strongly_connected_components(graph), key=len)
         graph = graph.subgraph(largest_scc).copy()
         log.info(
             f"After SCC extraction: {graph.number_of_nodes():,} nodes, "
             f"{graph.number_of_edges():,} edges"
         )
 
-    graph = ox.add_edge_speeds(graph)
-    graph = ox.add_edge_travel_times(graph)
+    # DO NOT call ox.add_edge_speeds or ox.add_edge_travel_times
+    # — these make additional Overpass requests and hang
+    # Edge lengths from the OSM XML are sufficient for A* and Dijkstra
 
-    # Verify before saving
     assert nx.is_strongly_connected(graph), \
-        "Graph is still not strongly connected after SCC extraction — do not cache"
+        "Graph still not strongly connected after SCC extraction"
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     ox.save_graphml(graph, cache_path)
@@ -121,42 +131,17 @@ def load_graph(
     return graph
 
 
-def _load_single(place_name: str, network_type: str) -> nx.MultiDiGraph:
-    try:
-        graph = ox.graph_from_place(
-            place_name,
-            network_type=network_type,
-            simplify=True,
-            retain_all=False,
-        )
-    except Exception as e:
-        log.warning(f"Single query failed: {e}")
-        log.info("Falling back to tiled download with geocoded bbox...")
-        bbox = _get_bbox_from_geocoder(place_name)
-        if bbox is None:
-            raise ConnectionError(
-                f"Could not find '{place_name}' in OpenStreetMap. "
-                "Check spelling or try a more specific name."
-            ) from e
-        return _load_tiled(bbox, grid_size=3, network_type=network_type)
-
-    # Extract largest strongly connected component
-    strongly_connected = list(nx.strongly_connected_components(graph))
-    largest = max(strongly_connected, key=len)
-    graph = graph.subgraph(largest).copy()
-
-    log.info(
-        f"Loaded '{place_name}': {graph.number_of_nodes():,} nodes "
-        f"({len(strongly_connected)} components found, kept largest)"
-    )
-
-    return graph
-
 def _load_tiled(
     bbox: tuple[float, float, float, float],
     grid_size: int,
     network_type: str,
 ) -> nx.MultiDiGraph:
+    log.info("DEBUG: entered _load_tiled")
+    log.info("DEBUG: entered _download_tile_with_retry")
+    log.info("DEBUG: about to POST to Overpass")
+    log.info("DEBUG: POST complete, parsing response")
+    log.info("DEBUG: about to call ox.graph_from_xml")
+    log.info("DEBUG: graph_from_xml complete")
     north, south, east, west = bbox
     lat_step = (north - south) / grid_size
     lng_step = (east - west) / grid_size
@@ -239,7 +224,6 @@ def _download_tile_with_retry(
     max_retries: int = 3,
     retry_delay_s: float = 30.0,
 ) -> nx.MultiDiGraph | None:
-
     way_filter = _network_type_to_filter(network_type)
     query = f"""
     [out:xml][timeout:180][bbox:{south},{west},{north},{east}];

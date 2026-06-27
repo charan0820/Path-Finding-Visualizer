@@ -165,6 +165,29 @@ def _run_search(graph, map_placeholder) -> None:
     algorithm_name  = st.session_state.get("selected_algorithm", "A*")
     algorithm_class = ALGORITHM_REGISTRY[algorithm_name]
 
+    # DEBUG — remove after fixing
+    import networkx as nx
+    nx_graph = graph.underlying_graph()
+    st.write({
+        "origin":              origin,
+        "destination":         dest,
+        "origin_in_graph":     graph.has_node(origin),
+        "dest_in_graph":       graph.has_node(dest),
+        "graph_nodes":         graph.node_count,
+        "graph_edges":         graph.edge_count,
+        "is_strongly_connected": nx.is_strongly_connected(nx_graph),
+        "num_scc":             nx.number_strongly_connected_components(nx_graph),
+        "origin_scc":          next(
+            i for i, c in enumerate(nx.strongly_connected_components(nx_graph))
+            if origin in c
+        ),
+        "dest_scc":            next(
+            i for i, c in enumerate(nx.strongly_connected_components(nx_graph))
+            if dest in c
+        ),
+        "has_path":            nx.has_path(nx_graph, origin, dest),
+    })
+
     result = algorithm_class(graph).find_path(origin, dest)
     state.set_searching(False)
 
