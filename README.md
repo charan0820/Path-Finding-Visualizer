@@ -1,26 +1,54 @@
-# A* Pathfinding Visualizer on Real Road Networks
+# A* & Dijkstra Pathfinding Visualizer on Real Road Networks
 
-> Interactive A* pathfinding on OpenStreetMap road networks, with animated
-> node exploration and performance metrics. Built as a resume project
-> demonstrating graph algorithms, software engineering architecture, and
-> real-world data integration.
+> A* and Dijkstra pathfinding implemented from scratch on real OpenStreetMap 
+> road networks, with animated node exploration, performance metrics, and 
+> support for 9 cities — built entirely in Python.
 
 **[▶ Live Demo](https://your-app.streamlit.app)** · [Architecture](#architecture) · [How it works](#how-it-works) · [Run locally](#run-locally)
 
 ---
 
-![Demo animation](assets/demo.gif)
+![Demo](assets/demo.gif)
 
 ---
 
 ## Features
 
-- Downloads real road networks from OpenStreetMap via OSMnx
-- A\* implemented from scratch with a haversine heuristic
+- A\* and Dijkstra implemented from scratch — no routing libraries
+- Real road networks from OpenStreetMap via a custom tiled Overpass API download system
 - Animated node exploration showing the search frontier expanding in real time
+- Side-by-side algorithm comparison — see how A\* and Dijkstra differ in nodes explored
 - Performance metrics: path length, nodes explored, runtime, search efficiency
+- Coordinate bounds validation per city — clear error messages for out-of-range inputs
+- Strongly connected component extraction — guarantees a valid path always exists
 - Modular architecture — new algorithms plug in by subclassing one abstract class
-- Streamlit UI with preset cities and coordinate snapping
+- Deployed on Streamlit Cloud with 9 preloaded cities
+
+---
+
+## Demo
+
+![Pathfinding Animation](assets/demo.gif)
+
+For a full walkthrough, watch the demo video:
+
+**[▶ Watch on YouTube](https://youtube.com/your-video-link)**
+
+---
+
+## Supported Cities
+
+| City | Nodes | Edges |
+|---|---|---|
+| Piedmont, California, USA | ~2,000 | ~4,000 |
+| Cambridge, UK | ~5,000 | ~11,000 |
+| Amsterdam, Netherlands | ~18,000 | ~38,000 |
+| Manhattan, New York, USA | ~30,000 | ~70,000 |
+| Shibuya, Tokyo, Japan | ~8,000 | ~17,000 |
+| London, UK | ~25,000 | ~55,000 |
+| Paris, France | ~20,000 | ~45,000 |
+| Berlin, Germany | ~22,000 | ~48,000 |
+| Barcelona, Spain | ~12,000 | ~26,000 |
 
 ---
 
@@ -31,10 +59,11 @@ pathfinding-visualizer/
 │
 ├── algorithms/
 │   ├── base.py          # Abstract PathfindingAlgorithm + SearchResult dataclass
-│   └── astar.py         # A* with haversine heuristic, priority queue, closed set
+│   ├── astar.py         # A* with haversine heuristic, min-heap, closed-set filtering
+│   └── dijkstra.py      # Dijkstra — optimal, no heuristic, explores more nodes than A*
 │
 ├── graph/
-│   ├── loader.py        # OSMnx download + GraphML cache layer
+│   ├── loader.py        # Tiled Overpass API download, SCC extraction, GraphML cache
 │   └── builder.py       # RoadGraph interface over NetworkX MultiDiGraph
 │
 ├── visualization/
@@ -47,14 +76,17 @@ pathfinding-visualizer/
 ├── ui/
 │   ├── state.py         # Centralised Streamlit session state management
 │   ├── app.py           # Main Streamlit app shell and render logic
-│   └── components.py    # Sidebar: city loader + coordinate input panels
+│   └── components.py    # Sidebar: city loader, coordinate input, bounds validation
 │
 ├── tests/
 │   ├── conftest.py      # FakeRoadGraph fixtures — no network, no OSM
 │   ├── test_astar.py    # Correctness, optimality, edge cases
+│   ├── test_dijkstra.py # Correctness + comparison against A* path lengths
 │   ├── test_heuristic.py# Haversine admissibility proof via unit tests
 │   └── test_metrics.py  # SearchMetrics derivation and formatting
 │
+├── requirements.txt
+├── packages.txt         # System deps for Streamlit Cloud (libspatialindex)
 └── main.py              # Entry point: streamlit run main.py
 ```
 
@@ -64,21 +96,32 @@ pathfinding-visualizer/
 OSM / GraphML cache
        │
        ▼
-  graph/loader.py          Downloads + caches road network
+  graph/loader.py
+  ┌─────────────────────────────────────────┐
+  │ 1. Check GraphML cache                  │
+  │ 2. If miss → tile bbox into N×N grid    │
+  │ 3. Query each tile directly via Overpass│
+  │    - 3 retries, 3 endpoint rotation     │
+  │    - Write XML to temp file             │
+  │    - Parse with ox.graph_from_xml       │
+  │ 4. Merge tiles with nx.compose_all      │
+  │ 5. Extract largest SCC                  │
+  │ 6. Save to GraphML cache                │
+  └─────────────────────────────────────────┘
        │
        ▼
   graph/builder.py         RoadGraph — clean interface for algorithm layer
        │
        ▼
-  algorithms/astar.py      A* search → SearchResult
+  algorithms/              A* or Dijkstra → SearchResult
        │            │
        ▼            ▼
 visualization/   metrics/
-map_view.py      performance.py   Render map     Compute stats
+map_view.py      performance.py
        │            │
        └─────┬──────┘
              ▼
-         ui/app.py           Streamlit shell — wires everything together
+         ui/app.py          Streamlit shell — wires everything together
 ```
 
 ---
@@ -87,53 +130,69 @@ map_view.py      performance.py   Render map     Compute stats
 
 ### Graph representation
 
-OpenStreetMap road data is downloaded via OSMnx and stored as a NetworkX
-`MultiDiGraph` — a directed graph where nodes are road intersections and
-edges are road segments with a `length` attribute in metres. One-way
-streets are represented as directed edges, which A\* handles correctly.
+OpenStreetMap road data is downloaded via direct Overpass API queries and 
+stored as a NetworkX `MultiDiGraph` — a directed graph where nodes are road 
+intersections and edges are road segments with a `length` attribute in metres. 
+One-way streets are directed edges, handled correctly by both algorithms.
 
-The raw NetworkX graph is wrapped in `RoadGraph`, a thin interface that
-decouples the algorithm layer from OSMnx. This means adding a new data
-source (PostGIS, GeoPackage, synthetic test graph) requires changing only
-`graph/loader.py`, not the algorithms.
+Large cities are split into an N×N grid of tiles. Each tile is queried 
+separately, parsed from OSM XML, then merged. After merging, the largest 
+strongly connected component is extracted — this guarantees any two nodes 
+in the final graph are mutually reachable.
 
 ### A\* algorithm
 
-A\* finds the shortest path between two nodes by maintaining:
+Maintains a min-heap open set keyed on `f(n) = g(n) + h(n)`, where `g(n)` 
+is the known cost from origin and `h(n)` is the haversine distance to the 
+destination. The haversine heuristic is admissible — it never overestimates, 
+so A\* is guaranteed to find the optimal path while exploring fewer nodes 
+than Dijkstra.
 
-- **Open set** — a min-heap of `(f_score, node_id)` tuples. Heap
-  operations are O(log n). Duplicate entries are allowed and filtered
-  via the closed set, avoiding the cost of in-place updates.
-- **Closed set** — a Python `set` of finalised node IDs. Membership
-  check is O(1).
-- **g\_score** — a dict of best known costs from the origin node.
-- **came\_from** — a dict of predecessor pointers for path reconstruction.
+**Time complexity:** O((V + E) log V) · **Space complexity:** O(V)
 
-The heuristic `h(n)` is the **haversine distance** between node `n` and
-the destination — the straight-line distance on a sphere. This is
-*admissible* (never overestimates) because road distance ≥ straight-line
-distance, which guarantees A\* returns the optimal path.
+### Dijkstra's algorithm
 
-**Time complexity:** O((V + E) log V)
-**Space complexity:** O(V)
+Identical to A\* but with `h(n) = 0` — priority is `g(n)` only. Explores 
+nodes in order of true distance from origin, fanning out in all directions 
+equally. Always finds the optimal path but typically explores more nodes 
+than A\* on geographic graphs.
+
+**Time complexity:** O((V + E) log V) · **Space complexity:** O(V)
+
+### Algorithm comparison
+
+| | A\* | Dijkstra |
+|---|---|---|
+| Heuristic | Haversine distance | None |
+| Nodes explored | Fewer (guided) | More (exhaustive) |
+| Path optimality | Guaranteed | Guaranteed |
+| Best for | Single destination | All destinations |
 
 ### Extending with a new algorithm
 
-Every algorithm subclasses `PathfindingAlgorithm` from `algorithms/base.py`:
-
 ```python
+# algorithms/your_algorithm.py
 from algorithms.base import PathfindingAlgorithm, SearchResult
 
-class DijkstraPathfinder(PathfindingAlgorithm):
-    name = "Dijkstra"
+class YourAlgorithm(PathfindingAlgorithm):
+    name = "Your Algorithm"
 
-    def find_path(self, origin_node: int, destination_node: int) -> SearchResult | None:
-        # your implementation here
+    def find_path(self, origin_node, destination_node):
+        # implement here
         ...
 ```
 
-The UI picks up any registered algorithm automatically — no changes to
-`app.py`, `components.py`, or any other file.
+Then add one line to `ALGORITHM_REGISTRY` in `ui/app.py`:
+
+```python
+ALGORITHM_REGISTRY = {
+    "A*":             AStarPathfinder,
+    "Dijkstra":       DijkstraPathfinder,
+    "Your Algorithm": YourAlgorithm,     # ← one line
+}
+```
+
+The UI, visualization, metrics, and animation all work automatically.
 
 ---
 
@@ -150,19 +209,17 @@ pip install -r requirements.txt
 streamlit run main.py
 ```
 
-Open `http://localhost:8501` in your browser.
+Open `http://localhost:8501`.
 
-**First run:** OSMnx downloads the road network from OpenStreetMap
-(~10–30 seconds depending on city size). Subsequent runs load from the
-local cache instantly.
+**First run:** downloads the road network from OpenStreetMap (~1–5 minutes 
+depending on city size). Subsequent runs load from local cache instantly.
 
 ### Run tests
 
 ```bash
 pytest tests/ -v
+# All tests use synthetic graphs — no network access, runs in under 5 seconds
 ```
-
-All tests use synthetic graphs — no network access, runs in under 2 seconds.
 
 ---
 
@@ -170,55 +227,51 @@ All tests use synthetic graphs — no network access, runs in under 2 seconds.
 
 | Layer | Library | Why |
 |---|---|---|
-| Road data | OSMnx 1.9+ | Wraps Overpass API; handles topology, projection, caching |
-| Graph | NetworkX 3.2+ | Standard graph library; MultiDiGraph for one-way streets |
-| Visualization | Folium 0.15+ | Leaflet.js maps as self-contained HTML |
-| UI | Streamlit 1.31+ | Fast interactive apps; free cloud deployment |
-| Algorithms | Pure Python | No routing library — A\* implemented from scratch |
+| Road data | Overpass API (direct) | Bypasses OSMnx area size limits for large cities |
+| Graph parsing | OSMnx 1.9+ | `graph_from_xml` for clean OSM → NetworkX conversion |
+| Graph | NetworkX 3.2+ | MultiDiGraph for one-way streets |
+| Nearest node | scikit-learn 1.4+ | Spatial index for O(log n) coordinate snapping |
+| Visualization | Folium 0.15+ | Leaflet.js interactive maps |
+| UI | Streamlit 1.31+ | Fast interactive apps, free cloud deployment |
+| Algorithms | Pure Python | No routing library — implemented from scratch |
 
 ---
 
 ## Performance
 
-On a city-scale graph (Piedmont, CA — ~2,000 nodes):
-
-| Metric | Typical value |
-|---|---|
-| Graph load (cached) | < 1 second |
-| A\* runtime | 5–50 ms |
-| Nodes explored | 200–800 |
-| Search efficiency | 40–75% |
-
-On larger graphs (Manhattan — ~70,000 nodes), A\* runtime is typically
-under 500 ms with the haversine heuristic.
+| City | Nodes | A\* runtime | Dijkstra runtime | A\* nodes explored |
+|---|---|---|---|---|
+| Piedmont, CA | ~2,000 | < 10ms | < 15ms | 100–400 |
+| Cambridge, UK | ~5,000 | < 30ms | < 50ms | 200–800 |
+| Amsterdam | ~18,000 | < 100ms | < 200ms | 500–2,000 |
+| Manhattan | ~30,000 | < 200ms | < 400ms | 1,000–5,000 |
 
 ---
 
 ## What I learned
 
-- Implementing A\* with correct tie-breaking, stale-entry filtering, and
-  admissible heuristic selection for geographic coordinates
-- Modular Python architecture with clear separation between data, algorithm,
-  and presentation layers
-- Working with real-world geospatial data: coordinate systems, graph
-  simplification, one-way street handling
+- Implementing A\* and Dijkstra with correct tie-breaking, stale-entry 
+  filtering, and admissible heuristic selection for geographic coordinates
+- Building a fault-tolerant tiled download system with retry logic, 
+  endpoint rotation, and automatic fallback for large city road networks
+- Strongly connected component extraction to guarantee path existence 
+  across merged multi-tile graphs
+- Modular Python architecture with strict layer separation — algorithms 
+  never import from UI, UI never imports from graph layer
 - Streamlit session state management for multi-step interactive apps
-- Writing a test suite that runs without network access using synthetic
+- Writing a test suite that runs without network access using synthetic 
   fixture graphs
 
 ---
 
 ## Future extensions
 
-The algorithm base class makes these drop-in additions:
-
-- [ ] Dijkstra (remove heuristic — useful as a correctness baseline)
-- [ ] Bidirectional A\* (search from both ends simultaneously)
-- [ ] Jump Point Search (order-of-magnitude speedup on uniform grids)
-- [ ] D\* Lite (dynamic replanning when edges change weight)
-- [ ] Algorithm comparison mode (run two algorithms side by side)
-- [ ] Turn restrictions (model `via` relations from OSM)
-- [ ] Isochrone maps (all nodes reachable within N minutes)
+- [ ] Bidirectional A\* — search from both ends simultaneously
+- [ ] Jump Point Search — order-of-magnitude speedup on uniform grids
+- [ ] D\* Lite — dynamic replanning when edge weights change
+- [ ] Algorithm comparison mode — run two algorithms side by side on the same query
+- [ ] Turn restrictions — model `via` relations from OSM data
+- [ ] Isochrone maps — all nodes reachable within N minutes
 
 ---
 
