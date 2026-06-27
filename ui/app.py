@@ -67,6 +67,15 @@ def _render_main(map_placeholder) -> None:
       5. Result available → show animated map + metrics
     """
 
+    """st.write({
+        "graph_loaded": state.is_graph_loaded(),
+        "origin": state.get_origin(),
+        "destination": state.get_destination(),
+        "nodes_selected": state.nodes_selected(),
+        "has_result": state.has_result(),
+        "is_searching": state.is_searching(),
+    })"""
+
     if not state.is_graph_loaded():
         _render_empty_state()
         return

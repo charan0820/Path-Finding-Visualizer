@@ -88,46 +88,49 @@ def _render_city_loader() -> None:
 
 
 def _load_graph_with_feedback(place_name: str) -> None:
-    """Download/cache the graph and update state, with Streamlit progress feedback."""
-
-    # Don't reload the same place
-    if state.get_place() == place_name and state.is_graph_loaded():
-        st.sidebar.success("Already loaded.")
-        return
-
     state.set_loading(True)
 
+    LARGE_CITIES = ["manhattan", "shibuya", "amsterdam", "tokyo", "london", "paris"]
+    is_large = any(city in place_name.lower() for city in LARGE_CITIES)
+
     with st.sidebar:
+        if is_large:
+            st.info(
+                "⏳ Large city — downloading in tiles. "
+                "This takes **5–10 minutes** on first load due to API rate limits. "
+                "Subsequent loads are instant from cache. "
+                "Do not close the app."
+            )
         progress_bar = st.progress(0, text="Connecting to OpenStreetMap...")
 
+    error_message = None
+
     try:
-        progress_bar.progress(20, text="Downloading road network...")
+        progress_bar.progress(10, text="Fetching bounding box...")
         nx_graph = load_graph(place_name)
-
-        progress_bar.progress(70, text="Building graph...")
+        progress_bar.progress(80, text="Building graph interface...")
         road_graph = RoadGraph(nx_graph)
-
-        progress_bar.progress(90, text="Indexing nodes...")
-        time.sleep(0.2)  # tiny pause so the user sees 90%
-
+        progress_bar.progress(95, text="Indexing nodes...")
         progress_bar.progress(100, text="Done!")
-        time.sleep(0.3)
-
         state.set_graph(road_graph, place_name)
 
-    except ConnectionError as e:
-        st.sidebar.error(
-            f"Could not load '{place_name}'. "
-            "Check the place name matches OpenStreetMap. "
-            f"Detail: {e}"
-        )
     except Exception as e:
-        st.sidebar.error(f"Unexpected error: {e}")
+        error_message = str(e)
+
     finally:
         state.set_loading(False)
         progress_bar.empty()
 
-    st.rerun()
+    if error_message:
+        st.sidebar.error(
+            f"❌ Failed to load '{place_name}'.  \n\n"
+            f"**Error:** {error_message}  \n\n"
+            "The Overpass API may be temporarily overloaded. "
+            "Wait 2 minutes and try again, or try a smaller area."
+        )
+        st.stop()
+    else:
+        st.rerun()
 
 
 # ------------------------------------------------------------------ #
@@ -176,6 +179,8 @@ def _render_coordinate_inputs() -> None:
     _render_example_coordinates()
 
     st.markdown("")  # spacing
+
+    #st.sidebar.write(f"DEBUG: {origin_lat}, {origin_lng}, {dest_lat}, {dest_lng}")
 
     set_clicked = st.button(
         "📍 Snap to nearest nodes",
