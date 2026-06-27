@@ -78,3 +78,19 @@ class RoadGraph:
         Algorithms should not use this.
         """
         return self._g
+    
+    def get_predecessors(self, node_id: int) -> list[tuple[int, float]]:
+        """
+        Return (predecessor_id, edge_length_metres) for all incoming edges.
+        Used by bidirectional algorithms for the backward search.
+        """
+        predecessors = []
+        for pred in self._g.predecessors(node_id):
+            edge_dict = self._g[pred][node_id]
+            min_length = min(
+                data.get('length', float('inf'))
+                for data in edge_dict.values()
+            )
+            if min_length < float('inf'):
+                predecessors.append((pred, min_length))
+        return predecessors

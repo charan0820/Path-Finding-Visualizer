@@ -24,17 +24,6 @@ class _FakeNodeData:
 
 
 class FakeRoadGraph:
-    """
-    Synthetic RoadGraph that matches graph.builder.RoadGraph's interface.
-
-    Build it by passing a NetworkX DiGraph where edges have a 'length'
-    attribute (metres) and nodes have 'lat' and 'lng' attributes.
-
-    This lets tests run without OSMnx, without disk I/O, and without
-    depending on Person 1's implementation of RoadGraph — only on the
-    agreed interface.
-    """
-
     def __init__(self, nx_graph: nx.DiGraph):
         self._g = nx_graph
 
@@ -43,17 +32,22 @@ class FakeRoadGraph:
 
     def get_node(self, node_id: int) -> _FakeNodeData:
         data = self._g.nodes[node_id]
-        return _FakeNodeData(
-            node_id=node_id,
-            lat=data['lat'],
-            lng=data['lng'],
-        )
+        return _FakeNodeData(node_id=node_id, lat=data['lat'], lng=data['lng'])
 
     def get_neighbors(self, node_id: int) -> list[tuple[int, float]]:
         return [
             (neighbor, self._g[node_id][neighbor]['length'])
             for neighbor in self._g.successors(node_id)
         ]
+
+    def get_predecessors(self, node_id: int) -> list[tuple[int, float]]:
+        return [
+            (pred, self._g[pred][node_id]['length'])
+            for pred in self._g.predecessors(node_id)
+        ]
+
+    def underlying_graph(self) -> nx.DiGraph:
+        return self._g
 
     def node_count(self) -> int:
         return self._g.number_of_nodes()

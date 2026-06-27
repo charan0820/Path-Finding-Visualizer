@@ -24,10 +24,14 @@ from visualization.animation import animate_search, render_final_map
 from metrics.performance import metrics_from_result
 from algorithms.astar import AStarPathfinder
 from algorithms.dijkstra import DijkstraPathfinder
+from algorithms.bidirectional_dijkstra import BidirectionalDijkstra
+from algorithms.bidirectional_bfs import BidirectionalBFS
 
 ALGORITHM_REGISTRY = {
-    "A*":      AStarPathfinder,
-    "Dijkstra": DijkstraPathfinder,
+    "A*":                    AStarPathfinder,
+    "Dijkstra":              DijkstraPathfinder,
+    "Bidirectional Dijkstra": BidirectionalDijkstra,
+    "Bidirectional BFS":     BidirectionalBFS,
 }
 
 def run_app() -> None:
@@ -140,53 +144,38 @@ def _render_search_controls(graph, map_placeholder) -> None:
         f"**Destination:** node {dest} ({dest_data.lat:.5f}, {dest_data.lng:.5f})"
     )
 
-    col1, col2, col3 = st.columns([1, 1, 3])
+    # Algorithm selector — renders first, value is committed to state on change
+    algorithm = st.selectbox(
+        "Algorithm",
+        options=list(ALGORITHM_REGISTRY.keys()),
+        index=list(ALGORITHM_REGISTRY.keys()).index(state.get_algorithm()),
+        key="algorithm_selectbox",
+        on_change=_on_algorithm_change,
+    )
+
+    col1, col2 = st.columns([1, 4])
     with col1:
         if st.button("▶ Run Search", type="primary", use_container_width=True):
             state.set_searching(True)
             st.rerun()
-
     with col2:
-        algorithm = st.selectbox(
-            "Algorithm",
-            options=list(ALGORITHM_REGISTRY.keys()),
-            index=0
-        )
-
-    with col3:
         animate = st.checkbox("Animate node exploration", value=True)
         st.session_state["animate_search"] = animate
+
+
+def _on_algorithm_change() -> None:
+    """Called when the selectbox changes — commits selection to state and clears result."""
+    selected = st.session_state["algorithm_selectbox"]
+    state.set_algorithm(selected)
+    state.clear_result()  # force re-run with new algorithm
 
 
 def _run_search(graph, map_placeholder) -> None:
     origin = state.get_origin()
     dest   = state.get_destination()
 
-    algorithm_name  = st.session_state.get("selected_algorithm", "A*")
+    algorithm_name  = state.get_algorithm()  # ← read from state, not session_state directly
     algorithm_class = ALGORITHM_REGISTRY[algorithm_name]
-
-    # DEBUG — remove after fixing
-    import networkx as nx
-    nx_graph = graph.underlying_graph()
-    st.write({
-        "origin":              origin,
-        "destination":         dest,
-        "origin_in_graph":     graph.has_node(origin),
-        "dest_in_graph":       graph.has_node(dest),
-        "graph_nodes":         graph.node_count,
-        "graph_edges":         graph.edge_count,
-        "is_strongly_connected": nx.is_strongly_connected(nx_graph),
-        "num_scc":             nx.number_strongly_connected_components(nx_graph),
-        "origin_scc":          next(
-            i for i, c in enumerate(nx.strongly_connected_components(nx_graph))
-            if origin in c
-        ),
-        "dest_scc":            next(
-            i for i, c in enumerate(nx.strongly_connected_components(nx_graph))
-            if dest in c
-        ),
-        "has_path":            nx.has_path(nx_graph, origin, dest),
-    })
 
     result = algorithm_class(graph).find_path(origin, dest)
     state.set_searching(False)
@@ -210,12 +199,12 @@ def _render_result(graph, map_placeholder) -> None:
     origin  = state.get_origin()
     dest    = state.get_destination()
 
-    # Metrics panel
-    _render_metrics_panel(metrics)
+    # Show which algorithm produced this result
+    st.info(f"Showing result for **{metrics.algorithm_name}**")
 
+    _render_metrics_panel(metrics)
     st.divider()
 
-    # Map — animate on first render, static on subsequent renders
     if not state.is_animation_done() and st.session_state.get("animate_search", True):
         animate_search(
             road_graph=graph,
@@ -224,7 +213,7 @@ def _render_result(graph, map_placeholder) -> None:
             destination_node=dest,
             placeholder=map_placeholder,
             frame_delay_s=0.04,
-            step_size=max(1, len(result.explored) // 60),  # target ~60 frames
+            step_size=max(1, len(result.explored) // 60),
         )
         state.set_animation_done()
     else:
@@ -236,7 +225,6 @@ def _render_result(graph, map_placeholder) -> None:
             placeholder=map_placeholder,
         )
 
-    # Reset button
     if st.button("🔄 New Search", use_container_width=False):
         state.clear_result()
         st.rerun()

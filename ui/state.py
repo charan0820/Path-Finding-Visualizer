@@ -29,17 +29,17 @@ _ANIMATED_KEY     = "animation_done"
 
 
 def init_state() -> None:
-    """Initialise all session state keys on first run."""
     defaults = {
-        _GRAPH_KEY:     None,
-        _PLACE_KEY:     None,
-        _ORIGIN_KEY:    None,
-        _DEST_KEY:      None,
-        _RESULT_KEY:    None,
-        _METRICS_KEY:   None,
-        _LOADING_KEY:   False,
-        _SEARCHING_KEY: False,
-        _ANIMATED_KEY:  False,
+        _GRAPH_KEY:      None,
+        _PLACE_KEY:      None,
+        _ORIGIN_KEY:     None,
+        _DEST_KEY:       None,
+        _RESULT_KEY:     None,
+        _METRICS_KEY:    None,
+        _LOADING_KEY:    False,
+        _SEARCHING_KEY:  False,
+        _ANIMATED_KEY:   False,
+        _ALGORITHM_KEY:  "A*",      # ← add this
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -154,3 +154,11 @@ def clear_search() -> None:
     st.session_state[_ORIGIN_KEY] = None
     st.session_state[_DEST_KEY]   = None
     clear_result()
+
+_ALGORITHM_KEY = "selected_algorithm"
+
+def set_algorithm(name: str) -> None:
+    st.session_state[_ALGORITHM_KEY] = name
+
+def get_algorithm() -> str:
+    return st.session_state.get(_ALGORITHM_KEY, "A*")
