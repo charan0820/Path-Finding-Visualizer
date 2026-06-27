@@ -23,7 +23,12 @@ from visualization.map_view import render_search_result
 from visualization.animation import animate_search, render_final_map
 from metrics.performance import metrics_from_result
 from algorithms.astar import AStarPathfinder
+from algorithms.dijkstra import DijkstraPathfinder
 
+ALGORITHM_REGISTRY = {
+    "A*":      AStarPathfinder,
+    "Dijkstra": DijkstraPathfinder,
+}
 
 def run_app() -> None:
     """Entry point — called by main.py."""
@@ -135,23 +140,32 @@ def _render_search_controls(graph, map_placeholder) -> None:
         f"**Destination:** node {dest} ({dest_data.lat:.5f}, {dest_data.lng:.5f})"
     )
 
-    col1, col2 = st.columns([1, 4])
+    col1, col2, col3 = st.columns([1, 1, 3])
     with col1:
-        if st.button("▶ Run A* Search", type="primary", use_container_width=True):
+        if st.button("▶ Run Search", type="primary", use_container_width=True):
             state.set_searching(True)
             st.rerun()
 
     with col2:
+        algorithm = st.selectbox(
+            "Algorithm",
+            options=list(ALGORITHM_REGISTRY.keys()),
+            index=0
+        )
+
+    with col3:
         animate = st.checkbox("Animate node exploration", value=True)
         st.session_state["animate_search"] = animate
 
 
 def _run_search(graph, map_placeholder) -> None:
-    """Execute A* and store the result. Called once per search."""
     origin = state.get_origin()
     dest   = state.get_destination()
 
-    result = AStarPathfinder(graph).find_path(origin, dest)
+    algorithm_name  = st.session_state.get("selected_algorithm", "A*")
+    algorithm_class = ALGORITHM_REGISTRY[algorithm_name]
+
+    result = algorithm_class(graph).find_path(origin, dest)
     state.set_searching(False)
 
     if result is None:
@@ -162,7 +176,7 @@ def _run_search(graph, map_placeholder) -> None:
         )
         return
 
-    metrics = metrics_from_result(result, "A*", origin, dest)
+    metrics = metrics_from_result(result, algorithm_name, origin, dest)
     state.set_result(result, metrics)
     st.rerun()
 
