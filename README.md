@@ -4,11 +4,13 @@
 > road networks, with animated node exploration, performance metrics, and 
 > support for 9 cities — built entirely in Python.
 
-**[▶ Live Demo](https://your-app.streamlit.app)** · [Architecture](#architecture) · [How it works](#how-it-works) · [Run locally](#run-locally)
+[Architecture](#architecture) · [How it works](#how-it-works) · [Run locally](#run-locally)
 
 ---
 
-![Demo](assets/demo.gif)
+## Demo
+
+![Pathfinding Animation](assets/demo.gif)
 
 ---
 
