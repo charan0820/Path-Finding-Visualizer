@@ -59,14 +59,23 @@ def load_graph(
     cache_dir: str = "data",
     network_type: str = "drive",
 ) -> nx.MultiDiGraph:
-    """
-    Load road network for a place, using local cache if available.
-    """
     cache_path = _cache_path(place_name, cache_dir)
 
     if cache_path.exists():
         log.info(f"Loading cached graph: {cache_path}")
         graph = ox.load_graphml(cache_path)
+
+        # Validate cache is strongly connected — fixes graphs cached before
+        # the SCC extraction fix was applied
+        if not nx.is_strongly_connected(graph):
+            log.warning(
+                f"Cached graph is not strongly connected "
+                f"({nx.number_strongly_connected_components(graph)} components). "
+                f"Deleting cache and redownloading..."
+            )
+            cache_path.unlink()  # delete the bad cache
+            return load_graph(place_name, cache_dir, network_type)  # reload
+
         _log_graph_stats(graph, place_name)
         return graph
 
@@ -77,13 +86,32 @@ def load_graph(
     if place_key in CITY_BBOXES:
         bbox      = CITY_BBOXES[place_key]
         grid_size = CITY_GRID_SIZE.get(place_key, 3)
-        log.info(f"Using hardcoded bbox for '{place_name}' with {grid_size}x{grid_size} grid")
         graph = _load_tiled(bbox, grid_size, network_type)
     else:
         graph = _load_single(place_name, network_type)
 
+    # Final guarantee — extract largest SCC before caching
+    # This runs regardless of load method
+    if not nx.is_strongly_connected(graph):
+        log.warning(
+            f"Graph has {nx.number_strongly_connected_components(graph)} "
+            f"components after loading — extracting largest SCC..."
+        )
+        largest_scc = max(
+            nx.strongly_connected_components(graph), key=len
+        )
+        graph = graph.subgraph(largest_scc).copy()
+        log.info(
+            f"After SCC extraction: {graph.number_of_nodes():,} nodes, "
+            f"{graph.number_of_edges():,} edges"
+        )
+
     graph = ox.add_edge_speeds(graph)
     graph = ox.add_edge_travel_times(graph)
+
+    # Verify before saving
+    assert nx.is_strongly_connected(graph), \
+        "Graph is still not strongly connected after SCC extraction — do not cache"
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     ox.save_graphml(graph, cache_path)
