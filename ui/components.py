@@ -21,6 +21,66 @@ from ui import state
 from graph.loader import load_graph, get_nearest_node
 from graph.builder import RoadGraph
 
+# Add this dict at the top of components.py after imports
+
+CITY_COORD_BOUNDS: dict[str, dict] = {
+    "amsterdam, netherlands": {
+        "north": 52.395, "south": 52.340,
+        "east":  4.940,  "west":  4.840,
+        "example_origin":      (52.3676, 4.9041),
+        "example_destination": (52.3588, 4.9089),
+    },
+    "manhattan, new york, usa": {
+        "north": 40.800, "south": 40.720,
+        "east": -73.940, "west": -74.010,
+        "example_origin":      (40.7484, -73.9856),
+        "example_destination": (40.7614, -73.9776),
+    },
+    "shibuya, tokyo, japan": {
+        "north": 35.668, "south": 35.648,
+        "east": 139.715, "west": 139.685,
+        "example_origin":      (35.6595, 139.7004),
+        "example_destination": (35.6641, 139.6981),
+    },
+    "london, uk": {
+        "north": 51.530, "south": 51.470,
+        "east":  -0.070, "west":  -0.170,
+        "example_origin":      (51.5074, -0.1278),
+        "example_destination": (51.5033, -0.1195),
+    },
+    "paris, france": {
+        "north": 48.880, "south": 48.830,
+        "east":   2.380, "west":   2.290,
+        "example_origin":      (48.8566,  2.3522),
+        "example_destination": (48.8738,  2.2950),
+    },
+    "berlin, germany": {
+        "north": 52.545, "south": 52.480,
+        "east":  13.450, "west":  13.340,
+        "example_origin":      (52.5200, 13.4050),
+        "example_destination": (52.5170, 13.3880),
+    },
+    "barcelona, spain": {
+        "north": 41.415, "south": 41.365,
+        "east":   2.205, "west":   2.130,
+        "example_origin":      (41.3851,  2.1734),
+        "example_destination": (41.4036,  2.1744),
+    },
+    # Small cities use place-name query so bounds are approximate
+    "piedmont, california, usa": {
+        "north": 37.835, "south": 37.810,
+        "east": -122.210, "west": -122.250,
+        "example_origin":      (37.8244, -122.2282),
+        "example_destination": (37.8219, -122.2235),
+    },
+    "cambridge, uk": {
+        "north": 52.230, "south": 52.185,
+        "east":   0.155, "west":   0.085,
+        "example_origin":      (52.2054,  0.1132),
+        "example_destination": (52.2134,  0.0992),
+    },
+}
+
 
 # ------------------------------------------------------------------ #
 # Public entry point — called by ui/app.py                           #
@@ -140,12 +200,23 @@ def _load_graph_with_feedback(place_name: str) -> None:
 def _render_coordinate_inputs() -> None:
     st.subheader("2. Set origin & destination")
 
-    st.caption(
-        "Enter coordinates as decimal degrees (e.g. 51.5074, -0.1278). "
-        "The nearest road network node will be used automatically."
-    )
+    graph  = state.get_graph()
+    place  = state.get_place()
+    bounds = CITY_COORD_BOUNDS.get(place.lower().strip()) if place else None
 
-    graph = state.get_graph()
+    # Show bounds info box
+    if bounds:
+        st.info(
+            f"📍 **Valid coordinate range for {place}**  \n"
+            f"Latitude:  `{bounds['south']}` → `{bounds['north']}`  \n"
+            f"Longitude: `{bounds['west']}` → `{bounds['east']}`  \n\n"
+            f"Coordinates outside this range will not be accepted."
+        )
+    else:
+        st.caption(
+            "Enter coordinates as decimal degrees (e.g. 51.5074, -0.1278). "
+            "The nearest road network node will be used automatically."
+        )
 
     # --- Origin ---
     st.markdown("**Origin**")
@@ -153,12 +224,12 @@ def _render_coordinate_inputs() -> None:
     with col1:
         origin_lat = st.number_input(
             "Lat", key="origin_lat", value=0.0, format="%.6f",
-            help="Latitude of your starting point"
+            help=f"Latitude: {bounds['south']} to {bounds['north']}" if bounds else "Latitude",
         )
     with col2:
         origin_lng = st.number_input(
             "Lng", key="origin_lng", value=0.0, format="%.6f",
-            help="Longitude of your starting point"
+            help=f"Longitude: {bounds['west']} to {bounds['east']}" if bounds else "Longitude",
         )
 
     # --- Destination ---
@@ -167,34 +238,95 @@ def _render_coordinate_inputs() -> None:
     with col3:
         dest_lat = st.number_input(
             "Lat", key="dest_lat", value=0.0, format="%.6f",
-            help="Latitude of your destination"
+            help=f"Latitude: {bounds['south']} to {bounds['north']}" if bounds else "Latitude",
         )
     with col4:
         dest_lng = st.number_input(
             "Lng", key="dest_lng", value=0.0, format="%.6f",
-            help="Longitude of your destination"
+            help=f"Longitude: {bounds['west']} to {bounds['east']}" if bounds else "Longitude",
         )
 
-    # Helper: show example coordinates for the loaded city
+    # Show example coordinates
     _render_example_coordinates()
 
-    st.markdown("")  # spacing
-
-    #st.sidebar.write(f"DEBUG: {origin_lat}, {origin_lng}, {dest_lat}, {dest_lng}")
+    st.markdown("")
 
     set_clicked = st.button(
         "📍 Snap to nearest nodes",
         use_container_width=True,
         disabled=_coords_are_default(origin_lat, origin_lng, dest_lat, dest_lng),
-        help="Finds the nearest road network node to each coordinate pair.",
     )
 
     if set_clicked:
+        # Validate bounds before snapping
+        if bounds and not _validate_coords(
+            origin_lat, origin_lng,
+            dest_lat, dest_lng,
+            bounds, place,
+        ):
+            return  # error already shown inside _validate_coords
+
         _snap_and_set_nodes(
             graph=graph,
             origin_lat=origin_lat, origin_lng=origin_lng,
             dest_lat=dest_lat,     dest_lng=dest_lng,
         )
+
+
+def _validate_coords(
+    origin_lat: float, origin_lng: float,
+    dest_lat: float,   dest_lng: float,
+    bounds: dict,
+    place: str,
+) -> bool:
+    """
+    Check both coordinate pairs are within the loaded city's bbox.
+    Shows a specific error message for each violation.
+    Returns True if all coords are valid, False otherwise.
+    """
+    north = bounds["north"]
+    south = bounds["south"]
+    east  = bounds["east"]
+    west  = bounds["west"]
+
+    errors = []
+
+    # Check origin
+    if not (south <= origin_lat <= north):
+        errors.append(
+            f"**Origin latitude** `{origin_lat}` is out of range.  \n"
+            f"Must be between `{south}` and `{north}`."
+        )
+    if not (west <= origin_lng <= east):
+        errors.append(
+            f"**Origin longitude** `{origin_lng}` is out of range.  \n"
+            f"Must be between `{west}` and `{east}`."
+        )
+
+    # Check destination
+    if not (south <= dest_lat <= north):
+        errors.append(
+            f"**Destination latitude** `{dest_lat}` is out of range.  \n"
+            f"Must be between `{south}` and `{north}`."
+        )
+    if not (west <= dest_lng <= east):
+        errors.append(
+            f"**Destination longitude** `{dest_lng}` is out of range.  \n"
+            f"Must be between `{west}` and `{east}`."
+        )
+
+    if errors:
+        error_text = "\n\n".join(errors)
+        st.sidebar.error(
+            f"❌ Coordinates out of bounds for **{place}**  \n\n"
+            f"{error_text}  \n\n"
+            f"Valid range — "
+            f"Lat: `{south}` → `{north}` | "
+            f"Lng: `{west}` → `{east}`"
+        )
+        return False
+
+    return True
 
 
 def _snap_and_set_nodes(
@@ -243,43 +375,27 @@ def _snap_and_set_nodes(
 
 
 def _render_example_coordinates() -> None:
-    """Show copy-pasteable example coordinates for the currently loaded city."""
     place = state.get_place()
     if not place:
         return
 
-    EXAMPLES: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
-        "Piedmont, California, USA": (
-            (37.8244, -122.2282),   # City Hall
-            (37.8219, -122.2235),   # Piedmont High School
-        ),
-        "Cambridge, UK": (
-            (52.2054,  0.1132),     # King's College
-            (52.2134,  0.0992),     # Cambridge train station
-        ),
-        "Manhattan, New York, USA": (
-            (40.7484, -73.9856),    # Empire State Building
-            (40.7614, -73.9776),    # Rockefeller Center
-        ),
-        "Shibuya, Tokyo, Japan": (
-            (35.6595, 139.7004),    # Shibuya Crossing
-            (35.6641, 139.6981),    # Yoyogi Park entrance
-        ),
-        "Amsterdam, Netherlands": (
-            (52.3676,  4.9041),     # Dam Square
-            (52.3588,  4.9089),     # Rijksmuseum
-        ),
-    }
+    bounds = CITY_COORD_BOUNDS.get(place.lower().strip())
+    if not bounds:
+        return
 
-    if place in EXAMPLES:
-        origin_ex, dest_ex = EXAMPLES[place]
-        with st.expander("📋 Example coordinates for this city", expanded=False):
-            st.markdown(
-                f"**Origin:** `{origin_ex[0]}, {origin_ex[1]}`  \n"
-                f"**Destination:** `{dest_ex[0]}, {dest_ex[1]}`"
-            )
-            st.caption("Copy these into the fields above to try a quick search.")
+    origin_ex = bounds["example_origin"]
+    dest_ex   = bounds["example_destination"]
 
+    with st.expander("📋 Example coordinates for this city", expanded=False):
+        st.markdown(
+            f"**Origin:** `{origin_ex[0]}, {origin_ex[1]}`  \n"
+            f"**Destination:** `{dest_ex[0]}, {dest_ex[1]}`"
+        )
+        st.caption(
+            f"Valid range — "
+            f"Lat: `{bounds['south']}` → `{bounds['north']}` | "
+            f"Lng: `{bounds['west']}` → `{bounds['east']}`"
+        )
 
 # ------------------------------------------------------------------ #
 # Graph info section                                                   #
