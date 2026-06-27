@@ -8,12 +8,6 @@
 
 ---
 
-## Demo
-
-![Pathfinding Animation](assets/demo.gif)
-
----
-
 ## Features
 
 - A\* and Dijkstra implemented from scratch — no routing libraries
@@ -30,11 +24,7 @@
 
 ## Demo
 
-![Pathfinding Animation](assets/demo.gif)
-
-For a full walkthrough, watch the demo video:
-
-**[▶ Watch on YouTube](https://youtube.com/your-video-link)**
+![Pathfinding Animation](assets/Demo.gif)
 
 ---
 
