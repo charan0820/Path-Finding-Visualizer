@@ -10,7 +10,7 @@
 
 ---
 
-![Demo](assets/demo.gif)
+![Demo](assets/Demo.gif)
 
 ---
 
