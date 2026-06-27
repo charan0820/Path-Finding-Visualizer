@@ -4,7 +4,7 @@
 > from scratch on real OpenStreetMap road networks — with animated node
 > exploration, performance metrics, and support for 9 cities.
 
-**[▶ Live Demo](https://your-app.streamlit.app)**
+[Architecture](#architecture) · [How it works](#how-it-works) · [Run locally](#run-locally)
 
 ---
 
